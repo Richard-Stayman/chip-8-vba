@@ -525,7 +525,7 @@ Public Sub Step()
                     ThisVM.V(&HF&) = temp
 
                 Case &H5& ' Вычесть Vy из Vx. Если Vx > Vy, то VF = 1, иначе 0
-                    If ThisVM.V(X) > ThisVM.V(Y) Then
+                    If ThisVM.V(X) >= ThisVM.V(Y) Then
                         ThisVM.V(X) = ThisVM.V(X) - ThisVM.V(Y)
                         temp = 1
                     Else
