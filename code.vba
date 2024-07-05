@@ -16,31 +16,32 @@ End Type
 Private Type VM
     ' Состояние виртуальной машины
     Running As Boolean
-    
+
     ' Регистры
     PC As Long ' Программный счётчик
     i As Long ' Регистр I, 16 бит, но Integer не подойдёт т.к. со знаком
     V(15) As Byte ' Регистры V0 по VF
-    
+
     ' Стек вызовов
     Stack(15) As Long ' Адреса
     StackTop As Long ' верхушка стека
-    
+
     ' Память
-    Memory(2047) As Byte
-    
+    Memory(4095) As Byte
+
     ' Экран
     Screen(63, 31) As ScreenPixel
-    
+
     ' Таймер задержки
     DelayTimer As Byte
     SoundTimer As Byte
-    
+
     ' Текущая нажатая клавиша, -1 если ничего не нажато
     CurrentKey As Integer
 End Type
 
 Dim ThisVM As VM
+Dim temp As Integer
 
 Dim LastRedraw As Double
 
@@ -192,7 +193,7 @@ Public Sub ClearScreen()
             SetScreenPixel i, j, 0
         Next j
     Next i
-    
+
     Redraw
 End Sub
 
@@ -212,7 +213,7 @@ Private Sub InitVM()
     Randomize
 
     ThisVM.CurrentKey = -1
-    
+
     ThisVM.PC = 512
     ThisVM.i = 0
     Dim i As Long
@@ -221,7 +222,7 @@ Private Sub InitVM()
     Next i
     ThisVM.DelayTimer = 0
     ThisVM.SoundTimer = 0
-    
+
     ThisVM.Memory(0) = &HF0&
     ThisVM.Memory(1) = &H90&
     ThisVM.Memory(2) = &H90&
@@ -302,11 +303,11 @@ Private Sub InitVM()
     ThisVM.Memory(77) = &HF0&
     ThisVM.Memory(78) = &H80&
     ThisVM.Memory(79) = &H80&
-    
+
     ThisVM.StackTop = 0
-    
+
     ClearScreen
-    
+
     VMSetRunning False
 End Sub
 
@@ -320,28 +321,28 @@ Private Sub CommandButton1_Click()
     Dim rom() As Byte
     Dim file As Integer: file = FreeFile
     Dim i As Long
-    
+
     filePath = Application.GetOpenFilename
     If filePath = False Then
         MsgBox "Загрузка картриджа отменена."
         Exit Sub
     End If
-    
+
     Open filePath For Binary Access Read As #file
     ReDim rom(0 To LOF(file) - 1)
     Get #file, , rom
     Close #file
-    
+
     For i = 0 To UBound(rom)
         ThisVM.Memory(i + 512) = rom(i)
     Next i
-    
+
     InitVM
 End Sub
 
 Private Sub VMSetRunning(Running As Boolean)
     ThisVM.Running = Running
-    
+
     If ThisVM.Running Then
         CommandButton2.Caption = "Стоп"
     Else
@@ -351,7 +352,7 @@ End Sub
 
 Private Sub CommandButton2_Click()
     VMSetRunning (Not ThisVM.Running)
-    
+
     If ThisVM.Running Then
         LastRedraw = Now
         ProcessVM
@@ -363,7 +364,7 @@ Private Function VMGetShort() As Long
     ' Преобразуем byte в long для операции сдвига
     i = (CLng(ThisVM.Memory(ThisVM.PC)) * 256) Or CLng(ThisVM.Memory(ThisVM.PC + 1))
     ThisVM.PC = ThisVM.PC + 2
-    
+
     VMGetShort = i
 End Function
 
@@ -386,16 +387,16 @@ Private Function DrawSprite(ByVal address As Long, ByVal targetX As Long, ByVal 
     Dim bitMask As Long
 
     DrawSprite = 0
-    
+
     j = targetY
     For a = address To address + bytes - 1
         spriteByte = ThisVM.Memory(a)
-        
+
         Y = j Mod 32
         bitMask = 1
         For i = targetX + 7 To targetX Step -1
             X = i Mod 64
-            
+
             bit = spriteByte And bitMask
             If bit Then
                 If ThisVM.Screen(X, Y).value <> 0 Then
@@ -405,10 +406,10 @@ Private Function DrawSprite(ByVal address As Long, ByVal targetX As Long, ByVal 
                     SetScreenPixel X, Y, 1
                 End If
             End If
-                
+
             bitMask = bitMask * 2
         Next i
-        
+
         j = j + 1
     Next a
 End Function
@@ -416,10 +417,10 @@ End Function
 Public Sub Step()
     ' Получаем инструкцию
     '''' ВНИМАНИЕ!!! Для шеснадцатеричных чисел больше 32 тысяч запись выглядит не как &H1234, а как &H1234&
-    
+
     ' Всяческие переменные, используемые в Select Case
     Dim register, value, registerAnd, X, Y, n, i As Long
-    
+
     Dim instruction As Long: instruction = VMGetShort
     Select Case (instruction And &HF000&) ' Маска для выделения одного четырёхбитного числа
         Case &H0& ' Инструкция системного вызова
@@ -436,10 +437,10 @@ Public Sub Step()
                         ThisVM.PC = ThisVM.Stack(ThisVM.StackTop)
                     End If
             End Select
-        
+
         Case &H1000& ' Инструкция прыжка по адресу
             ThisVM.PC = instruction And &HFFF
-            
+
         Case &H2000& ' Инструкция вызова процедуры
             If ThisVM.StackTop = 16 Then
                 TODO "Переполнение стека"
@@ -449,196 +450,219 @@ Public Sub Step()
                 ThisVM.StackTop = ThisVM.StackTop + 1
                 ThisVM.PC = instruction And &HFFF
             End If
-        
+
         Case &H3000& ' Инструкция пропуска следующей инструкции, если регистр равен параметру
             register = (instruction And &HF00&) \ PowerOfTwo(8) ' получаем 4 битный регистр
             value = (instruction And &HFF&) ' получаем 8 битный параметр
-            
+
             If ThisVM.V(register) = value Then
                 ThisVM.PC = ThisVM.PC + 2
             End If
-        
+
         Case &H4000& ' Инструкция пропуска следующей инструкции, если регистр НЕ равен параметру
             register = (instruction And &HF00&) \ PowerOfTwo(8) ' получаем 4 битный регистр
             value = (instruction And &HFF&) ' получаем 8 битный параметр
-            
+
             If ThisVM.V(register) <> value Then
                 ThisVM.PC = ThisVM.PC + 2
             End If
-            
+
         Case &H5000& ' Инструкция пропуска следующей инструкции при сравнении регистра с регистром
             X = (instruction And &HF00&) \ PowerOfTwo(8) ' получаем 4 битный регистр
             Y = (instruction And &HF0&) \ PowerOfTwo(4)
             n = (instruction And &HF&)
-            
+
             Select Case n
                 Case 0
                     If ThisVM.V(X) = ThisVM.V(Y) Then
                         ThisVM.PC = ThisVM.PC + 2
                     End If
-            
+
                 Case Else
                     TODO "Нет операции условного перехода " & Hex(n) & " с регистрами V" & Hex(X) & " и V" & Hex(Y)
                     VMSetRunning False
             End Select
-        
+
         Case &H6000& ' Инструкция приравнивания значения регистра к аргументу
             register = (instruction And &HF00&) \ PowerOfTwo(8) ' получаем 4 битный регистр
             value = (instruction And &HFF&) ' получаем 8 битный параметр
             ThisVM.V(register) = value
-        
+
         Case &H7000& ' Инструкция прибавления параметра к регистру, игнорируя переполнением
             register = (instruction And &HF00&) \ PowerOfTwo(8)
             value = (instruction And &HFF&) ' получаем 8 битный параметр
             ThisVM.V(register) = CByte((CInt(ThisVM.V(register)) + value) Mod 256)
-        
+
         Case &H8000& ' Инструкция с различными операциями для двух регистров
             X = (instruction And &HF00&) \ PowerOfTwo(8)
             Y = (instruction And &HF0&) \ PowerOfTwo(4)
             n = (instruction And &HF&)
-            
+
             Select Case n
                 Case &H0& ' Загрузить значение Vy в Vx
                     ThisVM.V(X) = ThisVM.V(Y)
-            
+
                 Case &H1& ' Побитовое ИЛИ
                     ThisVM.V(X) = ThisVM.V(X) Or ThisVM.V(Y)
-            
+                    ThisVM.V(&HF&) = 0
+
                 Case &H2& ' Побитовое И
                     ThisVM.V(X) = ThisVM.V(X) And ThisVM.V(Y)
-                    
+                    ThisVM.V(&HF&) = 0
+
                 Case &H3& ' Побитовое сложение по модулю 2
                     ThisVM.V(X) = ThisVM.V(X) Xor ThisVM.V(Y)
-                    
+                    ThisVM.V(&HF&) = 0
+
                 Case &H4& ' Сложение с флагом переполнения
                     value = CLng(ThisVM.V(X)) + CLng(ThisVM.V(Y))
                     If value > 255 Then
-                        ThisVM.V(&HF&) = 1
+                        temp = 1
                     Else
                         ThisVM.V(&HF&) = 0
                     End If
                     ThisVM.V(X) = value Mod 256
-                    
+                    ThisVM.V(&HF&) = temp
+
                 Case &H5& ' Вычесть Vy из Vx. Если Vx > Vy, то VF = 1, иначе 0
-                    If ThisVM.V(X) > ThisVM.V(Y) Then
+                    If ThisVM.V(X) >= ThisVM.V(Y) Then
                         ThisVM.V(X) = ThisVM.V(X) - ThisVM.V(Y)
-                        ThisVM.V(&HF&) = 1
+                        temp = 1
                     Else
                         ' При переполнении вычитаем меньшее из большего, затем результат из 256
                         ThisVM.V(X) = (&H100& - (ThisVM.V(Y) - ThisVM.V(X))) And &HFF&
-                        ThisVM.V(&HF&) = 0
+                        temp = 0
                     End If
-                    
+                    ThisVM.V(&HF&) = temp
+
                 Case &H6& ' Побитовый сдвиг направо, VF равен младшему знаку числа в регистре Vx
-                    ThisVM.V(&HF&) = ThisVM.V(X) And &H1&
+                    temp = ThisVM.V(X) And &H1&
                     ThisVM.V(X) = ThisVM.V(X) \ 2
-                    
+                    ThisVM.V(&HF&) = temp
+
+                Case &H7& '
+                If ThisVM.V(Y) >= ThisVM.V(X) Then
+                    temp = 1
+                Else
+                    temp = 0
+                End If
+                If ThisVM.V(Y) >= ThisVM.V(X) Then
+                    ThisVM.V(X) = ThisVM.V(Y) - ThisVM.V(X)
+                Else
+                    ThisVM.V(X) = (&H100& - (ThisVM.V(X) - ThisVM.V(Y))) And &HFF&
+                End If
+                ThisVM.V(&HF&) = temp
+
                 Case &HE& ' Побитовый сдвиг налево, VF равен старшему знаку числа в регистре Vx
-                    ThisVM.V(&HF&) = ThisVM.V(X) \ PowerOfTwo(7)
+                    temp = ThisVM.V(X) \ PowerOfTwo(7)
                     ThisVM.V(X) = (ThisVM.V(X) And &H7F&) * 2 ' Маска, исключающая самый левый бит во избежание переполнения
-            
+                    ThisVM.V(&HF&) = temp
+
                 Case Else
                     TODO "Нет операции " & Hex(n) & " над регистрами V" & Hex(X) & " и V" & Hex(Y)
                     VMSetRunning False
             End Select
-            
+
         Case &H9000& ' Ещё одна инструкция пропуска следующей инструкции при сравнении регистра с регистром
             X = (instruction And &HF00&) \ PowerOfTwo(8) ' получаем 4 битный регистр
             Y = (instruction And &HF0&) \ PowerOfTwo(4)
             n = (instruction And &HF&)
-            
+
             Select Case n
                 Case 0
                     If ThisVM.V(X) <> ThisVM.V(Y) Then
                         ThisVM.PC = ThisVM.PC + 2
                     End If
-            
+
                 Case Else
                     TODO "Нет операции условного перехода " & Hex(n) & " с регистрами V" & Hex(X) & " и V" & Hex(Y)
                     VMSetRunning False
             End Select
-            
+
         Case &HA000& ' Инструкция загрузки числа в регистр I
             ThisVM.i = instruction And &HFFF ' Маска для выделения 12-битного числа из инструкции
-        
+
+        Case &HB000&
+            ThisVM.PC = instruction + ThisVM.V(0) And &HFFF
+
         Case &HC000& ' Инструкция загрузки случайного числа в регистр
             register = (instruction And &HF00&) \ PowerOfTwo(8) ' получаем 4 битный регистр
             registerAnd = (instruction And &HFF&) ' получаем 8 битный параметр
             ThisVM.V(register) = Int(PowerOfTwo(8) * Rnd) And registerAnd ' Случайное число в [0; 256)
-        
+
         Case &HD000& ' Инструкция отрисовки спрайта на экран
             X = ThisVM.V((instruction And &HF00&) \ PowerOfTwo(8))
             Y = ThisVM.V((instruction And &HF0&) \ PowerOfTwo(4))
             n = (instruction And &HF&)
             ThisVM.V(&HF) = DrawSprite(ThisVM.i, X, Y, n)
-            
+
         Case &HE000& ' Инструкция условного перехода по клавише
             X = ThisVM.V((instruction And &HF00&) \ PowerOfTwo(8))
             n = (instruction And &HFF&)
-            
+
             Select Case n
                 Case &H9E& ' Пропустить следующую инструкцию при нажатой клавише [Vx]
                     If ThisVM.V(X) = ThisVM.CurrentKey Then
                         ThisVM.PC = ThisVM.PC + 2
                     End If
-                    
+
                 Case &HA1& ' Пропустить следующую инструкцию при ненажатой клавише [Vx]
                     If ThisVM.V(X) <> ThisVM.CurrentKey Then
                         ThisVM.PC = ThisVM.PC + 2
                     End If
-            
+
                 Case Else
                     TODO "Нет операции условного пропуска " & Hex(n) & " с регистром V" & Hex(X)
                     VMSetRunning False
             End Select
-        
+
         Case &HF000& ' Прочие инструкции
             X = (instruction And &HF00&) \ PowerOfTwo(8)
             n = (instruction And &HFF&)
-            
+
             Select Case n
                 Case &H7& ' Запись таймера в регистр Vx
                     ThisVM.V(X) = ThisVM.DelayTimer
-            
+
                 Case &HA& ' Ожидание нажатия клавиши
                     Redraw
                     While ThisVM.CurrentKey = -1
                         DoEvents
                     Wend
                     ThisVM.V(X) = ThisVM.CurrentKey
-                
+
                 Case &H15& ' Задание таймера задержки
                     ThisVM.DelayTimer = ThisVM.V(X)
-                
+
                 Case &H18& ' Задание таймера звука
                     ThisVM.SoundTimer = ThisVM.V(X)
-            
+
                 Case &H1E& ' Прибавление Vx к I
                     ThisVM.i = ThisVM.i + ThisVM.V(X)
-            
+
                 Case &H29& ' Получение адреса спрайта цифры из регистра Vx
                     ThisVM.i = ThisVM.V(X) * 5
-                
+
                 Case &H33& ' Преобразование числа из регистра Vx в десятичную форму по адресам I, I+1 и I+2
                     ThisVM.Memory(ThisVM.i) = ThisVM.V(X) \ 100
                     ThisVM.Memory(ThisVM.i + 1) = (ThisVM.V(X) \ 10) Mod 10
                     ThisVM.Memory(ThisVM.i + 2) = ThisVM.V(X) Mod 10
-                
+
                 Case &H55& ' Сохранить все регистры по адресу I
                     For i = 0 To X
                         ThisVM.Memory(ThisVM.i + i) = ThisVM.V(i)
                     Next i
-                
+
                 Case &H65& ' Загрузить все регистры по адресу I
                     For i = 0 To X
                         ThisVM.V(i) = ThisVM.Memory(ThisVM.i + i)
                     Next i
-            
+
                 Case Else
                     TODO "Нет операции " & Hex(n) & " над регистром V" & Hex(X)
                     VMSetRunning False
             End Select
-        
+
         Case Else
             TODO "Непонятная инструкция " & Hex(instruction)
             ThisVM.PC = ThisVM.PC - 2 ' Откатываемся назад ровно на одну инструкцию
@@ -650,28 +674,28 @@ Public Sub ProcessVM()
     If Not ThisVM.Running Then
         Exit Sub
     End If
-    
+
     Step
-    
+
     ' Работаем как можно быстрей
     Dim Count
     Count = Now + Millisecond
-    
+
     If LastRedraw + Millisecond * 16 < Now Then
         Redraw
-        
+
         ' Обновление таймера задержки
         If ThisVM.DelayTimer > 0 Then
             ThisVM.DelayTimer = ThisVM.DelayTimer - 1
         End If
-        
+
         ' Обновление таймера звука
         If ThisVM.SoundTimer > 0 Then
             ' TODO: проиграть звук
             ThisVM.SoundTimer = ThisVM.SoundTimer - 1
         End If
     End If
-    
+
     DoEvents
     Application.OnTime Count, "CHIP8List.ProcessVM"
 End Sub
@@ -680,7 +704,7 @@ Private Sub RedrawDebug()
     Range("$BO$3").value = Hex(ThisVM.PC)
     Range("$BO$4").value = Hex(ThisVM.i)
     Range("$BO$5").value = Hex(ThisVM.DelayTimer)
-    
+
     Dim i As Long
     For i = 0 To 15
         Range("$BR$" & (i + 3)).value = Hex(ThisVM.V(i))
@@ -690,9 +714,9 @@ End Sub
 
 Public Sub Redraw()
     LastRedraw = Now
-    
+
     RedrawDebug
-    
+
     Dim i, j As Long
     For i = 0 To 63
         For j = 0 To 31

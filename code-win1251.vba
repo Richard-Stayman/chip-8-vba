@@ -27,7 +27,7 @@ Private Type VM
     StackTop As Long ' верхушка стека
     
     ' Память
-    Memory(2047) As Byte
+    Memory(4095) As Byte
     
     ' Экран
     Screen(63, 31) As ScreenPixel
@@ -41,6 +41,7 @@ Private Type VM
 End Type
 
 Dim ThisVM As VM
+Dim temp As Integer
 
 Dim LastRedraw As Double
 
@@ -503,39 +504,59 @@ Public Sub Step()
             
                 Case &H1& ' Побитовое ИЛИ
                     ThisVM.V(X) = ThisVM.V(X) Or ThisVM.V(Y)
+                    ThisVM.V(&HF&) = 0
             
                 Case &H2& ' Побитовое И
                     ThisVM.V(X) = ThisVM.V(X) And ThisVM.V(Y)
+                    ThisVM.V(&HF&) = 0
                     
                 Case &H3& ' Побитовое сложение по модулю 2
                     ThisVM.V(X) = ThisVM.V(X) Xor ThisVM.V(Y)
+                    ThisVM.V(&HF&) = 0
                     
                 Case &H4& ' Сложение с флагом переполнения
                     value = CLng(ThisVM.V(X)) + CLng(ThisVM.V(Y))
                     If value > 255 Then
-                        ThisVM.V(&HF&) = 1
+                        temp = 1
                     Else
                         ThisVM.V(&HF&) = 0
                     End If
                     ThisVM.V(X) = value Mod 256
+                    ThisVM.V(&HF&) = temp
                     
                 Case &H5& ' Вычесть Vy из Vx. Если Vx > Vy, то VF = 1, иначе 0
-                    If ThisVM.V(X) > ThisVM.V(Y) Then
+                    If ThisVM.V(X) >= ThisVM.V(Y) Then
                         ThisVM.V(X) = ThisVM.V(X) - ThisVM.V(Y)
-                        ThisVM.V(&HF&) = 1
+                        temp = 1
                     Else
                         ' При переполнении вычитаем меньшее из большего, затем результат из 256
                         ThisVM.V(X) = (&H100& - (ThisVM.V(Y) - ThisVM.V(X))) And &HFF&
-                        ThisVM.V(&HF&) = 0
+                        temp = 0
                     End If
+                    ThisVM.V(&HF&) = temp
                     
                 Case &H6& ' Побитовый сдвиг направо, VF равен младшему знаку числа в регистре Vx
-                    ThisVM.V(&HF&) = ThisVM.V(X) And &H1&
+                    temp = ThisVM.V(X) And &H1&
                     ThisVM.V(X) = ThisVM.V(X) \ 2
-                    
+                    ThisVM.V(&HF&) = temp
+
+                Case &H7& '
+                If ThisVM.V(Y) >= ThisVM.V(X) Then
+                    temp = 1
+                Else
+                    temp = 0
+                End If
+                If ThisVM.V(Y) >= ThisVM.V(X) Then
+                    ThisVM.V(X) = ThisVM.V(Y) - ThisVM.V(X)
+                Else
+                    ThisVM.V(X) = (&H100& - (ThisVM.V(X) - ThisVM.V(Y))) And &HFF&
+                End If
+                ThisVM.V(&HF&) = temp
+
                 Case &HE& ' Побитовый сдвиг налево, VF равен старшему знаку числа в регистре Vx
-                    ThisVM.V(&HF&) = ThisVM.V(X) \ PowerOfTwo(7)
+                    temp = ThisVM.V(X) \ PowerOfTwo(7)
                     ThisVM.V(X) = (ThisVM.V(X) And &H7F&) * 2 ' Маска, исключающая самый левый бит во избежание переполнения
+                    ThisVM.V(&HF&) = temp
             
                 Case Else
                     TODO "Нет операции " & Hex(n) & " над регистрами V" & Hex(X) & " и V" & Hex(Y)
@@ -560,6 +581,9 @@ Public Sub Step()
             
         Case &HA000& ' Инструкция загрузки числа в регистр I
             ThisVM.i = instruction And &HFFF ' Маска для выделения 12-битного числа из инструкции
+
+        Case &HB000&
+            ThisVM.PC = instruction + ThisVM.V(0) And &HFFF
         
         Case &HC000& ' Инструкция загрузки случайного числа в регистр
             register = (instruction And &HF00&) \ PowerOfTwo(8) ' получаем 4 битный регистр
